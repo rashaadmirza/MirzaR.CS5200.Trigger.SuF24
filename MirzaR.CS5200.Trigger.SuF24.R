@@ -1,0 +1,169 @@
+# ASSIGNMENT 06.1: Build Triggers in SQLite
+# Date: June 17, 2024
+# Name: Rashaad Mohammed Mirza
+
+# Install (if necessary) and load necessary package
+# install.packages("RSQLite")
+library(RSQLite)
+
+# Connect to the SQLite database
+con <- dbConnect(RSQLite::SQLite(), "OrdersDB.sqlitedb.db")
+
+# ------------------------------------------------
+# 1. Using a combination of R and SQL code, alter the database to add a new column in the table "Orders" called "Total" as a numeric type that allows fractional positive values, e.g., 12.30 or 165.87.
+# ------------------------------------------------
+
+# Create a SQL statement to add the new column
+alter_table_sql <- "ALTER TABLE Orders ADD COLUMN Total NUMERIC"
+
+# Execute the SQL command using R function
+dbExecute(con, alter_table_sql)
+
+# Verify the column addition by querying the table schema information
+result <- dbGetQuery(con, "PRAGMA table_info(Orders)")
+print(result)
+
+# ------------------------------------------------
+# 2. Create an update statement that updates the new "Total" column to contain the total amount that the customer paid for the order.
+# ------------------------------------------------
+
+# SQL statement to update the "Total" column
+update_total_sql <- "
+UPDATE Orders
+SET Total = (
+    SELECT SUM(od.Quantity * p.Price)
+    FROM OrderDetails od
+    JOIN Products p ON od.ProductID = p.ProductID
+    WHERE od.OrderID = Orders.OrderID
+)
+"
+# Execute the SQL update statement
+dbExecute(con, update_total_sql)
+
+# Verify the update by querying the first few rows of the Orders table
+result <- dbGetQuery(con, "SELECT * FROM Orders LIMIT 5")
+print(result)
+
+# ------------------------------------------------
+# 3. Attach an "after insert" trigger on the table "OrderDetails" that recalculates the "Total" value in the "Orders" table to ensure that it is always correct whenever a new order detail item is inserted.
+# ------------------------------------------------
+
+# SQL statement to create the trigger
+create_trigger_insert_sql <- "
+CREATE TRIGGER update_order_total_after_insert
+AFTER INSERT ON OrderDetails
+FOR EACH ROW
+BEGIN
+  UPDATE Orders
+  SET Total = (
+    SELECT SUM(od.Quantity * p.Price)
+    FROM OrderDetails od
+    JOIN Products p ON od.ProductID = p.ProductID
+    WHERE od.OrderID = NEW.OrderID
+  )
+  WHERE OrderID = NEW.OrderID;
+END;
+"
+
+# Execute the SQL command to create the trigger
+dbExecute(con, create_trigger_insert_sql)
+
+# Verify the trigger creation by listing all triggers
+triggers <- dbGetQuery(con, "SELECT name FROM sqlite_master WHERE type='trigger'")
+print("List of triggers:")
+print(triggers)
+
+# ------------------------------------------------
+# 4. Ensure that the same recalculation occurs after an "update" and after a "delete", i.e., if an order detail is removed or updated.
+# ------------------------------------------------
+
+# SQL statement to create the "after update" trigger
+create_trigger_update_sql <- "
+CREATE TRIGGER update_order_total_after_update
+AFTER UPDATE ON OrderDetails
+FOR EACH ROW
+BEGIN
+  UPDATE Orders
+  SET Total = (
+    SELECT SUM(od.Quantity * p.Price)
+    FROM OrderDetails od
+    JOIN Products p ON od.ProductID = p.ProductID
+    WHERE od.OrderID = NEW.OrderID
+  )
+  WHERE OrderID = NEW.OrderID;
+END;
+"
+
+# Execute the SQL command to create the "after update" trigger
+dbExecute(con, create_trigger_update_sql)
+
+# SQL statement to create the "after delete" trigger
+create_trigger_delete_sql <- "
+CREATE TRIGGER update_order_total_after_delete
+AFTER DELETE ON OrderDetails
+FOR EACH ROW
+BEGIN
+  UPDATE Orders
+  SET Total = (
+    SELECT SUM(od.Quantity * p.Price)
+    FROM OrderDetails od
+    JOIN Products p ON od.ProductID = p.ProductID
+    WHERE od.OrderID = OLD.OrderID
+  )
+  WHERE OrderID = OLD.OrderID;
+END;
+"
+
+# Execute the SQL command to create the "after delete" trigger
+dbExecute(con, create_trigger_delete_sql)
+
+# Verify the trigger creation by listing all triggers
+triggers <- dbGetQuery(con, "SELECT name FROM sqlite_master WHERE type='trigger'")
+print("List of triggers:")
+print(triggers)
+
+# ------------------------------------------------
+# 5. Demonstrate that your trigger(s) work properly.
+# ------------------------------------------------
+
+# Insert a new order detail
+insert_sql <- "
+INSERT INTO OrderDetails (OrderID, ProductID, Quantity)
+VALUES (10248, 3, 1);
+"
+dbExecute(con, insert_sql)
+
+# Verify the update in the Orders table
+print("After insert:")
+result_insert <- dbGetQuery(con, "SELECT * FROM Orders WHERE OrderID = 10248")
+print(result_insert)
+
+# Update an existing order detail
+update_sql <- "
+UPDATE OrderDetails
+SET Quantity = 3
+WHERE OrderID = 10248 AND ProductID = 3;
+"
+dbExecute(con, update_sql)
+
+# Verify the update in the Orders table
+print("After update:")
+result_update <- dbGetQuery(con, "SELECT * FROM Orders WHERE OrderID = 10248")
+print(result_update)
+
+# Delete an order detail
+delete_sql <- "
+DELETE FROM OrderDetails
+WHERE OrderID = 10248 AND ProductID = 3;
+"
+dbExecute(con, delete_sql)
+
+# Verify the update in the Orders table
+print("After delete:")
+result_delete <- dbGetQuery(con, "SELECT * FROM Orders WHERE OrderID = 10248")
+print(result_delete)
+
+# ------------------------------------------------
+# Disconnect from the database when done
+# ------------------------------------------------
+dbDisconnect(con)
